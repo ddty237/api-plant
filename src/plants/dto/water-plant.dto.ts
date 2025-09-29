@@ -1,14 +1,15 @@
-import { IsString, IsNotEmpty, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString, IsNumber, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class WaterPlantDto {
   @ApiProperty({
-    description: 'Quantité d\'eau utilisée pour l\'arrosage',
-    example: '1L',
+    description: 'Quantité d\'eau utilisée pour l\'arrosage en litres',
+    example: 0.5,
+    minimum: 0.01,
   })
-  @IsString()
-  @IsNotEmpty()
-  quantity: string;
+  @IsNumber()
+  @Min(0.01)
+  quantityInLiters: number;
 
   @ApiPropertyOptional({
     description: 'Date et heure de l\'arrosage (par défaut: maintenant)',

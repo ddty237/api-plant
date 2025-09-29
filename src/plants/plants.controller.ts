@@ -100,6 +100,26 @@ export class PlantsController {
     };
   }
 
+  @Get('notifications')
+  @ApiOperation({ 
+    summary: 'Récupérer les notifications d\'arrosage',
+    description: 'Récupère toutes les notifications d\'arrosage pour l\'utilisateur connecté'
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Notifications récupérées avec succès',
+  })
+  async getNotifications(@Request() req: any): Promise<ApiResponseType<any>> {
+    const notifications = await this.plantsService.getWateringNotifications(req.user.sub);
+    
+    return {
+      success: true,
+      message: 'Notifications récupérées avec succès',
+      data: notifications,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   @Get(':id')
   @ApiOperation({ 
     summary: 'Récupérer une plante par ID',
@@ -190,8 +210,12 @@ export class PlantsController {
     
     return {
       success: true,
-      message: 'Arrosage enregistré avec succès',
-      data: result,
+      message: result.message,
+      data: {
+        plant: result.plant,
+        wateringRecord: result.wateringRecord,
+        wasEarly: result.wasEarly,
+      },
       timestamp: new Date().toISOString(),
     };
   }
@@ -237,6 +261,79 @@ export class PlantsController {
     return {
       success: true,
       message: 'Plante supprimée avec succès',
+      data: plant,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+
+  @Post(':id/snooze')
+  @ApiOperation({ 
+    summary: 'Reporter une notification d\'arrosage',
+    description: 'Reporte la notification d\'arrosage d\'une plante d\'1 heure'
+  })
+  @ApiParam({ name: 'id', description: 'ID de la plante' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Notification reportée avec succès',
+  })
+  async snoozeNotification(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<ApiResponseType<any>> {
+    const plant = await this.plantsService.snoozeNotification(req.user.sub, id);
+    
+    return {
+      success: true,
+      message: 'Notification reportée avec succès',
+      data: plant,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Patch(':id/notifications/disable')
+  @ApiOperation({ 
+    summary: 'Désactiver les notifications pour une plante',
+    description: 'Désactive les rappels d\'arrosage pour une plante spécifique'
+  })
+  @ApiParam({ name: 'id', description: 'ID de la plante' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Notifications désactivées avec succès',
+  })
+  async disableNotifications(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<ApiResponseType<any>> {
+    const plant = await this.plantsService.disableNotifications(req.user.sub, id);
+    
+    return {
+      success: true,
+      message: 'Notifications désactivées avec succès',
+      data: plant,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Patch(':id/notifications/enable')
+  @ApiOperation({ 
+    summary: 'Activer les notifications pour une plante',
+    description: 'Active les rappels d\'arrosage pour une plante spécifique'
+  })
+  @ApiParam({ name: 'id', description: 'ID de la plante' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Notifications activées avec succès',
+  })
+  async enableNotifications(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<ApiResponseType<any>> {
+    const plant = await this.plantsService.enableNotifications(req.user.sub, id);
+    
+    return {
+      success: true,
+      message: 'Notifications activées avec succès',
       data: plant,
       timestamp: new Date().toISOString(),
     };

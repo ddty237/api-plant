@@ -156,6 +156,8 @@ export class PlantsService {
   ): Promise<{
     plant: PlantDocument;
     wateringRecord: WateringRecordDocument;
+    message: string;
+    wasEarly: boolean;
   }> {
     const plant = await this.findOne(userId, plantId);
 
@@ -163,22 +165,58 @@ export class PlantsService {
       ? new Date(waterPlantDto.wateredAt)
       : new Date();
 
+    const currentNextWatering = plant.nextWatering;
+    const wasEarly = currentNextWatering && wateredAt < currentNextWatering;
+
     // Créer l'enregistrement d'arrosage
     const wateringRecord = new this.wateringRecordModel({
       plantId: new Types.ObjectId(plantId),
       userId: new Types.ObjectId(userId),
       wateredAt,
-      quantity: waterPlantDto.quantity,
+      quantityInLiters: waterPlantDto.quantityInLiters,
       notes: waterPlantDto.notes,
     });
 
     await wateringRecord.save();
 
+    let message: string;
+    let nextWatering: Date;
+
+    if (wasEarly) {
+      // Si arrosé en avance, garder la date prévue mais informer
+      nextWatering = currentNextWatering;
+      const daysEarly = Math.ceil((currentNextWatering.getTime() - wateredAt.getTime()) / (24 * 60 * 60 * 1000));
+      message = `Plante arrosée ${daysEarly} jour(s) en avance. Prochain arrosage maintenu au ${currentNextWatering.toLocaleDateString('fr-FR')}.`;
+    } else {
+      // Si arrosé à temps ou en retard, calculer la prochaine date
+      const frequency = plant.wateringNeeds.frequency;
+      const frequencyUnit = plant.wateringNeeds.frequencyUnit;
+      
+      if (frequencyUnit === 'days') {
+        nextWatering = new Date(wateredAt.getTime() + frequency * 24 * 60 * 60 * 1000);
+      } else { // weeks
+        nextWatering = new Date(wateredAt.getTime() + frequency * 7 * 24 * 60 * 60 * 1000);
+      }
+
+      // Ajuster selon l'heure préférée
+      const preferredTime = plant.wateringNeeds.preferredTimeOfDay;
+      if (preferredTime === 'morning') {
+        nextWatering.setHours(8, 0, 0, 0);
+      } else if (preferredTime === 'afternoon') {
+        nextWatering.setHours(14, 0, 0, 0);
+      } else { // evening
+        nextWatering.setHours(18, 0, 0, 0);
+      }
+
+      message = `Plante arrosée avec succès. Prochain arrosage prévu le ${nextWatering.toLocaleDateString('fr-FR')}.`;
+    }
+
     // Mettre à jour la plante
     plant.wateringNeeds.lastWatered = wateredAt;
+    plant.nextWatering = nextWatering;
     await plant.save();
 
-    return { plant, wateringRecord };
+    return { plant, wateringRecord, message, wasEarly };
   }
 
   /**
@@ -268,5 +306,162 @@ export class PlantsService {
       nextWatering,
       streak,
     };
+  }
+
+  /**
+   * Récupérer les plantes nécessitant un arrosage immédiat (en retard)
+   */
+  async getPlantsOverdue(userId: string): Promise<PlantDocument[]> {
+    const now = new Date();
+    return this.plantModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        isActive: true,
+        'wateringNeeds.reminderEnabled': true,
+        'wateringNeeds.nextWatering': { $lt: now },
+      })
+      .sort({ 'wateringNeeds.nextWatering': 1 })
+      .exec();
+  }
+
+  /**
+   * Récupérer les plantes à arroser bientôt (dans les prochaines 24h)
+   */
+  async getPlantsUpcoming(userId: string): Promise<PlantDocument[]> {
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    
+    return this.plantModel
+      .find({
+        userId: new Types.ObjectId(userId),
+        isActive: true,
+        'wateringNeeds.reminderEnabled': true,
+        'wateringNeeds.nextWatering': { 
+          $gte: now,
+          $lte: tomorrow 
+        },
+      })
+      .sort({ 'wateringNeeds.nextWatering': 1 })
+      .exec();
+  }
+
+  /**
+   * Récupérer toutes les notifications d'arrosage pour un utilisateur
+   */
+  async getWateringNotifications(userId: string): Promise<{
+    overdue: PlantDocument[];
+    upcoming: PlantDocument[];
+    count: {
+      overdue: number;
+      upcoming: number;
+      total: number;
+    };
+  }> {
+    const [overdue, upcoming] = await Promise.all([
+      this.getPlantsOverdue(userId),
+      this.getPlantsUpcoming(userId),
+    ]);
+
+    return {
+      overdue,
+      upcoming,
+      count: {
+        overdue: overdue.length,
+        upcoming: upcoming.length,
+        total: overdue.length + upcoming.length,
+      },
+    };
+  }
+
+  /**
+   * Récupérer les plantes en retard d'arrosage
+   */
+  private async getPlantsOverdue(userId: string): Promise<PlantDocument[]> {
+    const now = new Date();
+    
+    return this.plantModel.find({
+      userId: new Types.ObjectId(userId),
+      isActive: true,
+      'wateringNeeds.reminderEnabled': true,
+      nextWatering: { $lt: now }, // Date de prochain arrosage dépassée
+    }).exec();
+  }
+
+  /**
+   * Récupérer les plantes à arroser bientôt (dans les 8 prochaines heures)
+   */
+  private async getPlantsUpcoming(userId: string): Promise<PlantDocument[]> {
+    const now = new Date();
+    const in8Hours = new Date(now.getTime() + 8 * 60 * 60 * 1000); // 8 heures à partir de maintenant
+    
+    return this.plantModel.find({
+      userId: new Types.ObjectId(userId),
+      isActive: true,
+      'wateringNeeds.reminderEnabled': true,
+      nextWatering: { 
+        $gte: now, // Pas encore en retard
+        $lte: in8Hours // Mais dans les 8 prochaines heures
+      },
+    }).exec();
+  }
+
+  /**
+   * Marquer une notification comme lue (snooze pour 1 heure)
+   */
+  async snoozeNotification(userId: string, plantId: string): Promise<PlantDocument> {
+    const plant = await this.findOne(userId, plantId);
+    
+    // Décaler la prochaine notification d'1 heure
+    const nextWatering = new Date(plant.wateringNeeds.nextWatering);
+    nextWatering.setHours(nextWatering.getHours() + 1);
+    
+    plant.wateringNeeds.nextWatering = nextWatering;
+    return plant.save();
+  }
+
+  /**
+   * Désactiver les notifications pour une plante
+   */
+  async disableNotifications(userId: string, plantId: string): Promise<PlantDocument> {
+    const plant = await this.findOne(userId, plantId);
+    plant.wateringNeeds.reminderEnabled = false;
+    return plant.save();
+  }
+
+  /**
+   * Activer les notifications pour une plante
+   */
+  async enableNotifications(userId: string, plantId: string): Promise<PlantDocument> {
+    const plant = await this.findOne(userId, plantId);
+    plant.wateringNeeds.reminderEnabled = true;
+    return plant.save();
+  }
+
+  /**
+   * Formater la quantité d'eau en texte lisible
+   */
+  formatWaterQuantity(quantityInLiters: number): string {
+    if (quantityInLiters >= 1) {
+      return `${quantityInLiters}L`;
+    } else {
+      return `${Math.round(quantityInLiters * 1000)}ml`;
+    }
+  }
+
+  /**
+   * Convertir une quantité textuelle en litres
+   */
+  parseWaterQuantity(quantity: string): number {
+    const lowerQuantity = quantity.toLowerCase().trim();
+    
+    if (lowerQuantity.includes('ml')) {
+      const ml = parseFloat(lowerQuantity.replace('ml', ''));
+      return ml / 1000;
+    } else if (lowerQuantity.includes('l')) {
+      return parseFloat(lowerQuantity.replace('l', ''));
+    } else {
+      // Assume it's already in liters if no unit
+      return parseFloat(lowerQuantity);
+    }
   }
 }

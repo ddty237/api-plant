@@ -24,8 +24,8 @@ export class WateringRecord {
   @Prop({ required: true, default: Date.now })
   wateredAt: Date;
 
-  @Prop({ required: true, trim: true })
-  quantity: string; // ex: "1L", "500ml"
+  @Prop({ required: true })
+  quantityInLiters: number; // Quantité en litres (ex: 0.5, 1.0, 2.5)
 
   @Prop({ trim: true })
   notes?: string;

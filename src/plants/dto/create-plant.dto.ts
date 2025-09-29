@@ -1,24 +1,54 @@
-import { IsString, IsNotEmpty, IsDateString, IsOptional, IsNumber, Min, ValidateNested } from 'class-validator';
+import { IsString, IsNotEmpty, IsDateString, IsOptional, IsNumber, Min, ValidateNested, IsEnum, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class WateringNeedsDto {
   @ApiProperty({
-    description: 'Quantité d\'eau nécessaire',
-    example: '1L',
+    description: 'Quantité d\'eau nécessaire en litres',
+    example: 0.5,
+    minimum: 0.01,
   })
-  @IsString()
-  @IsNotEmpty()
-  quantity: string;
+  @IsNumber()
+  @Min(0.01)
+  quantityInLiters: number;
 
   @ApiProperty({
-    description: 'Fréquence d\'arrosage en jours',
+    description: 'Fréquence d\'arrosage',
     example: 3,
     minimum: 1,
   })
   @IsNumber()
   @Min(1)
   frequency: number;
+
+  @ApiPropertyOptional({
+    description: 'Unité de fréquence',
+    example: 'days',
+    enum: ['days', 'weeks'],
+    default: 'days',
+  })
+  @IsOptional()
+  @IsEnum(['days', 'weeks'])
+  frequencyUnit?: 'days' | 'weeks';
+
+  @ApiPropertyOptional({
+    description: 'Heure préférée pour l\'arrosage',
+    example: 'morning',
+    enum: ['morning', 'afternoon', 'evening'],
+    default: 'morning',
+  })
+  @IsOptional()
+  @IsEnum(['morning', 'afternoon', 'evening'])
+  preferredTimeOfDay?: 'morning' | 'afternoon' | 'evening';
+
+  @ApiPropertyOptional({
+    description: 'Activer les rappels d\'arrosage',
+    example: true,
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  reminderEnabled?: boolean;
 
   @ApiPropertyOptional({
     description: 'Date du dernier arrosage',
